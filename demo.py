@@ -37,7 +37,7 @@ if __name__ == "__main__":
         im_names = open(inputlist, 'r').readlines()
     elif len(inputpath) and inputpath != '/':
         for root, dirs, files in os.walk(inputpath):
-            im_names = files
+            im_names = [f for f in files if f[-4:] == '.png']
     else:
         raise IOError('Error: must contain either --indir/--list')
 

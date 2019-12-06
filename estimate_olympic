@@ -1,0 +1,25 @@
+# export ROOT=/export/scratch/jhaux/Data/olympic\ sports/
+# export ROOT=/export/scratch/jhaux/Data/olympic_test/
+#
+VIDEO="$1"
+GPU="$2"
+
+export CUDA_VISIBLE_DEVICES=$GPU
+
+function estimator() {
+    file=$1
+    echo $file
+    mkdir "${file}_track"
+    python demo.py --indir "${file}_frames/" --outdir "${file}_track/"
+}
+
+estimator "$VIDEO"
+
+# OIFS="$IFS"
+# IFS=$'\n'
+# echo "======" &>> estimate_log.txt
+# for file in `find $ROOT -name "*.seq" | sort`  
+# do
+#     (estimator &>> estimate_log.txt && echo '') &
+# done  |  tqdm --total $(find "$ROOT" -name *.seq | wc -l)
+# IFS="$OIFS"

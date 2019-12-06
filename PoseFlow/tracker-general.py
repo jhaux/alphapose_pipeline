@@ -27,7 +27,6 @@ import argparse
 
 # visualization
 def display_pose(imgdir, visdir, tracked, cmap):
-
     print("Start visualization...\n")
     for imgname in tqdm(tracked.keys()):
         img = Image.open(os.path.join(imgdir,imgname))
@@ -89,6 +88,8 @@ if __name__ == '__main__':
     parser.add_argument('--mag', type=int, default=30)
     parser.add_argument('--match', type=float, default=0.2)
 
+    parser.add_argument('--visonly', action='store_true', default=False, help='Only do the visualization.')
+
     args = parser.parse_args()
 
     # super parameters
@@ -113,114 +114,157 @@ if __name__ == '__main__':
     image_dir = args.imgdir
     vis_dir = args.visdir
 
-    # if json format is differnt from "alphapose-forvis.json" (pytorch version)
-    if "forvis" not in notrack_json:
-        results_forvis = {}
-        last_image_name = ' '
+    if not args.visonly:
 
-        with open(notrack_json) as f:
-            results = json.load(f)
-            for i in xrange(len(results)):
-                imgpath = results[i]['image_id']
-                if last_image_name != imgpath:
-                    results_forvis[imgpath] = []
-                    results_forvis[imgpath].append({'keypoints':results[i]['keypoints'],'scores':results[i]['score']})
-                else:
-                    results_forvis[imgpath].append({'keypoints':results[i]['keypoints'],'scores':results[i]['score']})
-                last_image_name = imgpath
-        notrack_json = os.path.join(os.path.dirname(notrack_json), "alphapose-results-forvis.json")
-        with open(notrack_json,'w') as json_file:
-                json_file.write(json.dumps(results_forvis))
-        
-    notrack = {}
-    track = {}
-    num_persons = 0
+        # if json format is differnt from "alphapose-forvis.json" (pytorch version)
+        if "forvis" not in notrack_json:
+            results_forvis = {}
+            last_image_name = ' '
 
-    # load json file without tracking information
-    print("Start loading json file...\n")
-    with open(notrack_json,'r') as f:
-        notrack = json.load(f)
-        for img_name in tqdm(sorted(notrack.keys())):
-            track[img_name] = {'num_boxes':len(notrack[img_name])}
-            for bid in range(len(notrack[img_name])):
-                track[img_name][bid+1] = {}
-                track[img_name][bid+1]['box_score'] = notrack[img_name][bid]['scores']
-                track[img_name][bid+1]['box_pos'] = get_box(notrack[img_name][bid]['keypoints'], os.path.join(image_dir,img_name))
-                track[img_name][bid+1]['box_pose_pos'] = np.array(notrack[img_name][bid]['keypoints']).reshape(-1,3)[:,0:2]
-                track[img_name][bid+1]['box_pose_score'] = np.array(notrack[img_name][bid]['keypoints']).reshape(-1,3)[:,-1]
+            with open(notrack_json) as f:
+                results = json.load(f)
+                for i in range(len(results)):
+                    imgpath = results[i]['image_id']
+                    if last_image_name != imgpath:
+                        results_forvis[imgpath] = []
+                        results_forvis[imgpath].append({'keypoints':results[i]['keypoints'],'scores':results[i]['score']})
+                    else:
+                        results_forvis[imgpath].append({'keypoints':results[i]['keypoints'],'scores':results[i]['score']})
+                    last_image_name = imgpath
+            notrack_json = os.path.join(os.path.dirname(notrack_json), "alphapose-results-forvis.json")
+            with open(notrack_json,'w') as json_file:
+                    json_file.write(json.dumps(results_forvis))
+            
+        notrack = {}
+        track = {}
+        num_persons = 0
+
+        # load json file without tracking information
+        print("Start loading json file...\n")
+        with open(notrack_json,'r') as f:
+            notrack = json.load(f)
+            # warn = "+ WARNING: HARDCODED TO ONLY USE FRAMES 250-400!!!! +"
+            # print('+'*len(warn))
+            # print(warn)
+            # print('+'*len(warn))
+            # for img_name in tqdm(sorted(notrack.keys())[250:400]):
+            for img_name in tqdm(sorted(notrack.keys())):
+                track[img_name] = {'num_boxes':len(notrack[img_name])}
+                for bid in range(len(notrack[img_name])):
+                    track[img_name][bid+1] = {}
+                    track[img_name][bid+1]['box_score'] = notrack[img_name][bid]['scores']
+                    track[img_name][bid+1]['box_pos'] = get_box(notrack[img_name][bid]['keypoints'], os.path.join(image_dir,img_name))
+                    track[img_name][bid+1]['box_pose_pos'] = np.array(notrack[img_name][bid]['keypoints']).reshape(-1,3)[:,0:2]
+                    track[img_name][bid+1]['box_pose_score'] = np.array(notrack[img_name][bid]['keypoints']).reshape(-1,3)[:,-1]
    
-    np.save('notrack-bl.npy',track)
-    # track = np.load('notrack-bl.npy').item()
+        np.save('notrack-bl.npy',track)
+        # track = np.load('notrack-bl.npy').item()
 
-    # tracking process
-    max_pid_id = 0
-    frame_list = sorted(list(track.keys()))
+        # tracking process
+        max_pid_id = 0
+        frame_list = sorted(list(track.keys()))
 
-    print("Start pose tracking...\n")
-    for idx, frame_name in enumerate(tqdm(frame_list[:-1])):
-        frame_new_pids = []
-        frame_id = frame_name.split(".")[0]
+        print("Start pose tracking...\n")
+        for idx, frame_name in enumerate(tqdm(frame_list[:-1])):
+            frame_new_pids = []
+            frame_id = frame_name.split(".")[0]
 
-        next_frame_name = frame_list[idx+1]
-        next_frame_id = next_frame_name.split(".")[0]
+            next_frame_name = frame_list[idx+1]
+            next_frame_id = next_frame_name.split(".")[0]
+            
+            # init tracking info of the first frame in one video
+            if idx == 0:
+                for pid in range(1, track[frame_name]['num_boxes']+1):
+                        track[frame_name][pid]['new_pid'] = pid
+                        track[frame_name][pid]['match_score'] = 0
+
+            max_pid_id = max(max_pid_id, track[frame_name]['num_boxes'])
+            cor_file = os.path.join(image_dir, "".join([frame_id, '_', next_frame_id, '_orb.txt']))
+           
+            # regenerate the missed pair-matching txt
+            if not os.path.exists(cor_file) or os.stat(cor_file).st_size<200:
+                img1_path = os.path.join(image_dir, frame_name)
+                img2_path = os.path.join(image_dir, next_frame_name)
+                orb_matching(img1_path,img2_path, image_dir, frame_id, next_frame_id)
+
+            all_cors = np.loadtxt(cor_file)
+
+            # if there is no people in this frame, then copy the info from former frame
+            if track[next_frame_name]['num_boxes'] == 0:
+                track[next_frame_name] = copy.deepcopy(track[frame_name])
+                continue
+            cur_all_pids, cur_all_pids_fff = stack_all_pids(track, frame_list[:-1], idx, max_pid_id, link_len)
+            match_indexes, match_scores = best_matching_hungarian(
+                all_cors, cur_all_pids, cur_all_pids_fff, track[next_frame_name], weights, weights_fff, num, mag)
         
-        # init tracking info of the first frame in one video
-        if idx == 0:
+            for pid1, pid2 in match_indexes:
+                if match_scores[pid1][pid2] > match_thres:
+                    track[next_frame_name][pid2+1]['new_pid'] = cur_all_pids[pid1]['new_pid']
+                    max_pid_id = max(max_pid_id, track[next_frame_name][pid2+1]['new_pid'])
+                    track[next_frame_name][pid2+1]['match_score'] = match_scores[pid1][pid2]
+
+            # add the untracked new person
+            for next_pid in range(1, track[next_frame_name]['num_boxes'] + 1):
+                if 'new_pid' not in track[next_frame_name][next_pid]:
+                    max_pid_id += 1
+                    track[next_frame_name][next_pid]['new_pid'] = max_pid_id
+                    track[next_frame_name][next_pid]['match_score'] = 0
+
+        np.save('track-bl.npy',track)
+        # track = np.load('track-bl.npy').item()
+        
+        # calculate number of people
+        num_persons = 0
+        for fid, frame_name in enumerate(frame_list):
             for pid in range(1, track[frame_name]['num_boxes']+1):
-                    track[frame_name][pid]['new_pid'] = pid
-                    track[frame_name][pid]['match_score'] = 0
+                num_persons = max(num_persons, track[frame_name][pid]['new_pid'])
+        print("This video contains %d people."%(num_persons))
 
-        max_pid_id = max(max_pid_id, track[frame_name]['num_boxes'])
-        cor_file = os.path.join(image_dir, "".join([frame_id, '_', next_frame_id, '_orb.txt']))
-       
-        # regenerate the missed pair-matching txt
-        if not os.path.exists(cor_file) or os.stat(cor_file).st_size<200:
-            img1_path = os.path.join(image_dir, frame_name)
-            img2_path = os.path.join(image_dir, next_frame_name)
-            orb_matching(img1_path,img2_path, image_dir, frame_id, next_frame_id)
+        # export tracking result into notrack json files
+        print("Export tracking results to json...\n")
+        good_keys = []
+        for fid, frame_name in enumerate(tqdm(frame_list)):
+            tqdm.write(frame_name)
+            for pid in range(track[frame_name]['num_boxes']):
+                tqdm.write('pid: {}'.format(pid))
+                tqdm.write('new_pid: {}'.format(track[frame_name][pid+1]['new_pid']))
+                notrack[frame_name][pid]['idx'] = track[frame_name][pid+1]['new_pid']
+                tqdm.write('idx: {}'.format(notrack[frame_name][pid]['idx']))
+            good_keys += [frame_name]
 
-        all_cors = np.loadtxt(cor_file)
+        for name in list(notrack.keys()):
+            if name not in good_keys:
+                del notrack[name]
 
-        # if there is no people in this frame, then copy the info from former frame
-        if track[next_frame_name]['num_boxes'] == 0:
-            track[next_frame_name] = copy.deepcopy(track[frame_name])
-            continue
-        cur_all_pids, cur_all_pids_fff = stack_all_pids(track, frame_list[:-1], idx, max_pid_id, link_len)
-        match_indexes, match_scores = best_matching_hungarian(
-            all_cors, cur_all_pids, cur_all_pids_fff, track[next_frame_name], weights, weights_fff, num, mag)
-    
-        for pid1, pid2 in match_indexes:
-            if match_scores[pid1][pid2] > match_thres:
-                track[next_frame_name][pid2+1]['new_pid'] = cur_all_pids[pid1]['new_pid']
-                max_pid_id = max(max_pid_id, track[next_frame_name][pid2+1]['new_pid'])
-                track[next_frame_name][pid2+1]['match_score'] = match_scores[pid1][pid2]
+        with open(tracked_json,'w') as json_file:
+            json_file.write(json.dumps(notrack))
 
-        # add the untracked new person
-        for next_pid in range(1, track[next_frame_name]['num_boxes'] + 1):
-            if 'new_pid' not in track[next_frame_name][next_pid]:
-                max_pid_id += 1
-                track[next_frame_name][next_pid]['new_pid'] = max_pid_id
-                track[next_frame_name][next_pid]['match_score'] = 0
+        if len(args.visdir)>0:
+            cmap = plt.cm.get_cmap("hsv", num_persons)
+            misses = []
+            for k, v in notrack.items():
+                for pid, val in enumerate(v):
+                    if 'idx' not in val:
+                        misses += [[v, pid]]
+            print(misses)
+            print(list(notrack.keys()))
+            # print([notrack['frame-000252.png'][i]['idx'] for i in range(5)])
+            display_pose(image_dir, vis_dir, notrack, cmap)
 
-    np.save('track-bl.npy',track)
-    # track = np.load('track-bl.npy').item()
-    
-    # calculate number of people
-    num_persons = 0
-    for fid, frame_name in enumerate(frame_list):
-        for pid in range(1, track[frame_name]['num_boxes']+1):
-            num_persons = max(num_persons, track[frame_name][pid]['new_pid'])
-    print("This video contains %d people."%(num_persons))
+    else:
+        if len(args.visdir)>0:
+            with open(tracked_json, 'r') as json_file:
+                notrack = json.load(json_file)
+            misses = []
+            for k, v in notrack.items():
+                for pid, val in enumerate(v):
+                    if 'idx' not in val:
+                        misses += [[k, pid]]
+            print(misses)
+            print(list(notrack.keys()))
+            print([notrack['frame-000252.png'][i]['idx'] for i in range(5)])
 
-    # export tracking result into notrack json files
-    print("Export tracking results to json...\n")
-    for fid, frame_name in enumerate(tqdm(frame_list)):
-        for pid in range(track[frame_name]['num_boxes']):
-            notrack[frame_name][pid]['idx'] = track[frame_name][pid+1]['new_pid']
-
-    with open(tracked_json,'w') as json_file:
-        json_file.write(json.dumps(notrack))
-
-    if len(args.visdir)>0:
-        cmap = plt.cm.get_cmap("hsv", num_persons)
-        display_pose(image_dir, vis_dir, notrack, cmap)
+            cmap = plt.cm.get_cmap("hsv", 100)
+            display_pose(image_dir, vis_dir, notrack, cmap)
+        else:
+            raise ValueError('Need visdir!')
